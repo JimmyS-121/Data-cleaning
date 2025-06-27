@@ -1,8 +1,6 @@
 import pandas as pd
 import numpy as np
 import json
-from pathlib import Path
-from datetime import datetime
 
 class QuestionnaireCleaner:
     def __init__(self):
@@ -18,47 +16,41 @@ class QuestionnaireCleaner:
             'suggestions': ['improvement_suggestion', 'suggestions', 'feedback', 'comments']
         }
 
-    def load_data(self, file_path, file_type='auto'):
-        """Load data from CSV or JSON file with automatic detection"""
+    def load_data(self, file, file_type):
+        """Load uploaded file into DataFrame"""
         try:
-            if file_type == 'json' or (file_type == 'auto' and str(file_path).lower().endswith('.json')):
-                if isinstance(file_path, str):
-                    with open(file_path, 'r') as f:
-                        data = json.load(f)
-                else:  # For file upload objects
-                    data = json.load(file_path)
+            if file_type == "JSON":
+                data = json.load(file)
                 return pd.json_normalize(data)
-            else:  # Default to CSV
-                return pd.read_csv(file_path, parse_dates=['timestamp'], dayfirst=True)
+            return pd.read_csv(file)
         except Exception as e:
-            print(f"Error loading file: {e}")
-            return None
+            raise ValueError(f"Error loading file: {str(e)}")
 
     def clean_data(self, df):
-        """Main cleaning pipeline"""
+        """Main data cleaning pipeline"""
         if df is None or df.empty:
             return df
 
-        # 1. Standardize column names
-        df = self.standardize_columns(df)
+        # Standardize column names
+        df = self._standardize_columns(df)
         
-        # 2. Clean specific fields
+        # Clean specific fields
         if 'timestamp' in df.columns:
             df['timestamp'] = pd.to_datetime(df['timestamp']).dt.strftime('%Y-%m-%d %H:%M:%S')
         
         if 'department' in df.columns:
-            df['department'] = df['department'].fillna('Student').str.title()
+            df['department'] = df['department'].fillna('Unknown').str.title()
         
         if 'ai_tool' in df.columns:
-            df['ai_tool'] = self.clean_ai_tools(df['ai_tool'])
+            df['ai_tool'] = self._clean_ai_tools(df['ai_tool'])
         
         if 'ease_of_use' in df.columns:
-            df['ease_of_use'] = self.clean_ratings(df['ease_of_use'])
+            df['ease_of_use'] = self._clean_ratings(df['ease_of_use'])
         
-        return df
+        return df.dropna(how='all', axis=1)
 
-    def standardize_columns(self, df):
-        """Auto-map columns to standard names"""
+    def _standardize_columns(self, df):
+        """Map columns to standardized names"""
         column_mapping = {}
         for col in df.columns:
             col_lower = str(col).lower()
@@ -70,7 +62,7 @@ class QuestionnaireCleaner:
                 column_mapping[col] = col
         return df.rename(columns=column_mapping)
 
-    def clean_ai_tools(self, series):
+    def _clean_ai_tools(self, series):
         """Standardize AI tool names"""
         tool_map = {
             'chatgpt': 'ChatGPT',
@@ -82,41 +74,7 @@ class QuestionnaireCleaner:
         return (series.astype(str).str.strip().str.lower()
                 .replace(tool_map).str.title())
 
-    def clean_ratings(self, series, scale=5):
-        """Ensure ratings are 1-5 scale"""
+    def _clean_ratings(self, series, scale=5):
+        """Ensure ratings are within 1-5 scale"""
         series = pd.to_numeric(series, errors='coerce')
         return series.clip(1, scale)
-
-    def save_clean_data(self, df, output_path):
-        """Save cleaned data to CSV"""
-        df.to_csv(output_path, index=False)
-        return output_path
-
-# Self-test when run directly
-if __name__ == "__main__":
-    cleaner = QuestionnaireCleaner()
-    
-    # Test CSV
-    test_csv = pd.DataFrame({
-        'Timestamp': ['2023-01-01', '2023-01-02'],
-        'Dept': ['IT', 'HR'],
-        'AI Tool Used': ['chatgpt', 'copilot']
-    })
-    test_csv.to_csv('test_csv.csv', index=False)
-    
-    # Test JSON
-    test_json = [
-        {"timestamp": "2023-01-01", "department": "IT", "ai_tool": "chatgpt"},
-        {"timestamp": "2023-01-02", "department": "HR", "ai_tool": "copilot"}
-    ]
-    with open('test_json.json', 'w') as f:
-        json.dump(test_json, f)
-    
-    # Run tests
-    print("=== CSV Test ===")
-    df_csv = cleaner.load_data('test_csv.csv')
-    print(cleaner.clean_data(df_csv).head())
-    
-    print("\n=== JSON Test ===")
-    df_json = cleaner.load_data('test_json.json')
-    print(cleaner.clean_data(df_json).head())
