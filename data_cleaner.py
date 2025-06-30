@@ -5,7 +5,7 @@ from typing import Dict
 
 class QuestionnaireCleaner:
     def __init__(self):
-        # Preserve original headers while standardizing internally
+        # Original headers from your CSV
         self.original_headers = {
             'timestamp': 'Timestamp',
             'department': 'Which Department are you in?',
@@ -27,24 +27,38 @@ class QuestionnaireCleaner:
             r'deep.?seek': 'Deepseek',
             r'kling.?ai': 'Kling AI',
             r'copilot': 'Copilot',
-            r'gamma': 'Gamma'
+            r'gamma': 'Gamma',
+            r'openai': 'ChatGPT',
+            r'gpt-\d': 'ChatGPT'
         }
+
+    def load_data(self, file_path: str) -> pd.DataFrame:
+        """Load data from CSV file"""
+        try:
+            df = pd.read_csv(file_path)
+            if df.empty:
+                raise ValueError("Empty file uploaded")
+            return df
+        except Exception as e:
+            raise ValueError(f"Error loading file: {str(e)}")
 
     def clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """Main cleaning pipeline that preserves original headers"""
         df_clean = df.copy()
         
-        # Standardize data while keeping original column names
+        # Standardize AI tools
         if self.original_headers['ai_tool'] in df_clean.columns:
             df_clean[self.original_headers['ai_tool']] = self._clean_ai_tools(
                 df_clean[self.original_headers['ai_tool']]
             )
         
+        # Standardize usage frequency
         if self.original_headers['usage_frequency'] in df_clean.columns:
             df_clean[self.original_headers['usage_frequency']] = self._clean_usage_frequency(
                 df_clean[self.original_headers['usage_frequency']]
             )
         
+        # Clean ratings (1-5 scale)
         if self.original_headers['ease_of_use'] in df_clean.columns:
             df_clean[self.original_headers['ease_of_use']] = self._clean_ratings(
                 df_clean[self.original_headers['ease_of_use']]
@@ -55,6 +69,7 @@ class QuestionnaireCleaner:
                 df_clean[self.original_headers['time_saved']]
             )
         
+        # Clean suggestions
         if self.original_headers['suggestions'] in df_clean.columns:
             df_clean[self.original_headers['suggestions']] = self._clean_suggestions(
                 df_clean[self.original_headers['suggestions']]
@@ -63,7 +78,7 @@ class QuestionnaireCleaner:
         return df_clean
 
     def _clean_ai_tools(self, series: pd.Series) -> pd.Series:
-        """Standardize AI tool names while preserving original column header"""
+        """Standardize AI tool names"""
         def standardize_tool(tool_name: str) -> str:
             if pd.isna(tool_name):
                 return 'Unknown'
@@ -87,7 +102,7 @@ class QuestionnaireCleaner:
         return series.str.lower().map(freq_map).fillna(series.str.title())
 
     def _clean_suggestions(self, series: pd.Series) -> pd.Series:
-        """Clean suggestions while preserving original header"""
+        """Clean suggestions column"""
         return series.str.strip().replace(
             r'^(no|none|n/a|not|nothing|nil|nan|null|undefined)$', 
             'No suggestions', 
@@ -99,20 +114,26 @@ class QuestionnaireCleaner:
         return pd.to_numeric(series, errors='coerce').clip(1, 5)
 
     def save_cleaned_data(self, df: pd.DataFrame, output_path: str):
-        """Save data with original recognizable headers"""
+        """Save data with original headers"""
         df.to_csv(output_path, index=False, encoding='utf-8-sig')
 
 if __name__ == '__main__':
     cleaner = QuestionnaireCleaner()
     
-    # Load your original data
-    raw_data = pd.read_csv("cleaned_questionnaire (1).csv")
-    
-    # Clean data while preserving headers
-    cleaned_data = cleaner.clean_data(raw_data)
-    
-    # Save with original recognizable headers
-    cleaner.save_cleaned_data(cleaned_data, "cleaned_questionnaire_ANALYSIS_READY.csv")
-    
-    print("Cleaning complete! Output saved with original recognizable headers.")
-    print("Sample cleaned AI tools:", cleaned_data[cleaner.original_headers['ai_tool']].unique())
+    try:
+        # Load data
+        raw_data = cleaner.load_data("cleaned_questionnaire (1).csv")
+        
+        # Clean data
+        cleaned_data = cleaner.clean_data(raw_data)
+        
+        # Save cleaned data
+        cleaner.save_cleaned_data(cleaned_data, "cleaned_questionnaire_FINAL.csv")
+        
+        print("="*50)
+        print("Cleaning complete! Output saved to 'cleaned_questionnaire_FINAL.csv'")
+        print("Unique AI tools found:", cleaned_data[cleaner.original_headers['ai_tool']].unique())
+        print("="*50)
+        
+    except Exception as e:
+        print(f"Error: {str(e)}")
