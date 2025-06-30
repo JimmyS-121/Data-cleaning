@@ -6,17 +6,17 @@ from typing import Dict, List, Union
 
 class QuestionnaireCleaner:
     def __init__(self):
-        # More aggressive matching patterns that will catch your exact column names
+        # Column name patterns that will match ANY variation of your questionnaire
         self.column_patterns = {
             'timestamp': r'timestamp|date|time|when',
-            'department': r'department|dept|which department are you in',
-            'job_role': r'job.?role|position|your role|what is your role',
-            'ai_tool': r'ai.?tool|what ai tool\(s\) do you use most',
-            'usage_frequency': r'usage.?frequency|how often|how frequently',
-            'purpose': r'purpose|use.?case|how do you use',
-            'ease_of_use': r'ease.?of.?use|how easy|usability',
-            'time_saved': r'time.?saved|time.?saving|productivity',
-            'suggestions': r'suggestions|feedback|improvement|comments'
+            'department': r'department|dept|which\s*department',
+            'job_role': r'job[\s_-]*role|position|your\s*role|what\s*is\s*your\s*role',
+            'ai_tool': r'ai[\s_-]*tool|what\s*ai\s*tool|most\s*used\s*ai',
+            'usage_frequency': r'usage[\s_-]*frequency|how\s*often|how\s*frequently',
+            'purpose': r'purpose|use[\s_-]*case|how\s*do\s*you\s*use',
+            'ease_of_use': r'ease[\s_-]*of[\s_-]*use|how\s*easy|usability',
+            'time_saved': r'time[\s_-]*saved|time[\s_-]*saving|productivity',
+            'suggestions': r'suggestions|feedback|improvement|comments|what\s*improvements'
         }
         
         self.suggestion_patterns = {
@@ -29,41 +29,49 @@ class QuestionnaireCleaner:
         }
 
     def load_data(self, file_path: str) -> pd.DataFrame:
-        """Load data from CSV or JSON"""
+        """SMASHES through any CSV/JSON file and loads it"""
         try:
-            if file_path.endswith('.json'):
+            if file_path.lower().endswith('.json'):
                 with open(file_path, 'r') as f:
                     data = json.load(f)
-                return pd.json_normalize(data)
+                df = pd.json_normalize(data)
             else:
-                return pd.read_csv(file_path)
+                # EATS CSV files for breakfast
+                df = pd.read_csv(file_path)
+            
+            if df.empty:
+                raise ValueError("Empty file! Feed me data!")
+            return df
+            
         except Exception as e:
-            raise ValueError(f"Error loading file: {str(e)}")
+            raise ValueError(f"CRASHED while loading file: {str(e)}")
 
     def clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Forcefully standardize ALL columns to expected names"""
+        """DESTROYS messy data and BUILDS clean dataframe"""
         if df.empty:
-            raise ValueError("Empty dataframe provided")
+            raise ValueError("I can't clean what doesn't exist!")
             
-        # 1. First normalize all column names to lowercase with underscores
-        df.columns = [col.strip().lower().replace(' ', '_').replace('?', '') for col in df.columns]
+        # 1. SMASH column names into consistent format
+        df.columns = [col.strip().lower().replace(' ', '_').replace('?', '') 
+                     for col in df.columns]
         
-        # 2. Aggressive pattern matching for your specific columns
+        # 2. OBLITERATE original column names and create perfect standardized ones
         column_mapping = {}
         for col in df.columns:
-            col_normalized = col.lower().replace('(', '').replace(')', '').replace('_', '')
+            # NORMALIZE the hell out of column names
+            normalized_col = re.sub(r'[^a-z0-9]', '', col.lower())
             
-            if re.search(r'whichdepartmentareyouin', col_normalized):
+            # BRUTAL pattern matching that WILL work
+            if re.search(r'whichdepartment', normalized_col):
                 column_mapping[col] = 'department'
-            elif re.search(r'whataitool', col_normalized):
+            elif re.search(r'whataitool|mostusedai', normalized_col):
                 column_mapping[col] = 'ai_tool'
-            elif re.search(r'usagefreq|howoften', col_normalized):
+            elif re.search(r'usagefreq|howoften', normalized_col):
                 column_mapping[col] = 'usage_frequency'
-            elif re.search(r'suggest|feedback|improve', col_normalized):
+            elif re.search(r'suggest|feedback|improve', normalized_col):
                 column_mapping[col] = 'suggestions'
-            # Add other specific mappings as needed
             else:
-                # Fallback to pattern matching
+                # FALLBACK to nuclear pattern matching
                 for std_col, pattern in self.column_patterns.items():
                     if re.search(pattern, col, re.IGNORECASE):
                         column_mapping[col] = std_col
@@ -71,15 +79,18 @@ class QuestionnaireCleaner:
                 else:
                     column_mapping[col] = col  # Keep original if no match
         
-        # Apply the mapping
+        # 3. ANNIHILATE the old column names
         df = df.rename(columns=column_mapping)
         
-        # 3. Data cleaning
+        # 4. CLEANSE the data with FIRE
         if 'ai_tool' in df.columns:
             df['ai_tool'] = self._clean_ai_tools(df['ai_tool'])
         
         if 'usage_frequency' in df.columns:
-            df['usage_frequency'] = df['usage_frequency'].fillna('Unknown').str.strip().str.title()
+            df['usage_frequency'] = (df['usage_frequency']
+                                    .fillna('Unknown')
+                                    .str.strip()
+                                    .str.title())
         
         if 'suggestions' in df.columns:
             df['suggestions'] = self._clean_suggestions(df['suggestions'])
@@ -88,7 +99,7 @@ class QuestionnaireCleaner:
         return df
 
     def _clean_ai_tools(self, series: pd.Series) -> pd.Series:
-        """Force clean AI tool names"""
+        """MURDERS inconsistent AI tool names"""
         tool_map = {
             r'chat.?gpt': 'ChatGPT',
             r'gpt-?4': 'GPT-4',
@@ -96,7 +107,8 @@ class QuestionnaireCleaner:
             r'google.?bard': 'Google Bard',
             r'gemini': 'Google Gemini',
             r'github.?copilot': 'GitHub Copilot',
-            r'mid.?journey': 'Midjourney'
+            r'mid.?journey': 'Midjourney',
+            r'claude': 'Claude'
         }
         series = series.astype(str).str.strip().str.title()
         for pattern, replacement in tool_map.items():
@@ -104,7 +116,7 @@ class QuestionnaireCleaner:
         return series
 
     def _clean_suggestions(self, series: pd.Series) -> pd.Series:
-        """Clean suggestion text"""
+        """PURIFIES suggestion text"""
         series = series.astype(str).str.strip()
         series = series.replace([
             'nan', 'none', 'n/a', 'no', 'nothing', 
@@ -113,7 +125,7 @@ class QuestionnaireCleaner:
         return series.str.title()
 
     def _categorize_suggestions(self, series: pd.Series) -> pd.Series:
-        """Categorize suggestions"""
+        """ORGANIZES suggestions with MILITARY precision"""
         def _categorize(text):
             text = str(text).lower()
             if 'no suggestion' in text:
@@ -131,26 +143,29 @@ class QuestionnaireCleaner:
         return series.apply(_categorize)
 
     def save_clean_data(self, df: pd.DataFrame, output_path: str):
-        """Save cleaned data with guaranteed correct columns"""
+        """EXPORTS pristine data ready for ANALYSIS DOMINATION"""
         cleaned = self.clean_data(df)
+        
+        # GUARANTEED columns your analysis tool needs
         required_columns = [
             'timestamp', 'department', 'job_role', 'ai_tool',
             'usage_frequency', 'purpose', 'ease_of_use',
             'time_saved', 'suggestions'
         ]
         
-        # Ensure all expected columns exist
+        # FORCE missing columns to exist
         for col in required_columns:
             if col not in cleaned.columns:
-                cleaned[col] = None  # Add missing columns as null
+                cleaned[col] = None
                 
         cleaned.to_csv(output_path, index=False)
 
 if __name__ == '__main__':
     cleaner = QuestionnaireCleaner()
     try:
+        # CRUSH your data file and BUILD analysis-ready version
         raw_data = cleaner.load_data("your_questionnaire.csv")
         cleaner.save_clean_data(raw_data, "ANALYSIS_READY.csv")
-        print("Success! Cleaned data saved as ANALYSIS_READY.csv")
+        print("SUCCESS! Cleaned data saved as ANALYSIS_READY.csv")
     except Exception as e:
-        print(f"Error: {str(e)}")
+        print(f"ERROR: {str(e)}")
