@@ -6,19 +6,35 @@ from typing import Dict, List, Union
 
 class QuestionnaireCleaner:
     def __init__(self):
-        # Updated to match exact column names from your CSV
+        # Column name standardization (matches your CSV headers)
         self.standard_columns = {
             'timestamp': ['timestamp', 'date', 'time', 'datetime'],
-            'department': ['which department are you in?', 'department', 'dept', 'division', 'team'],
-            'job_role': ['role:', 'job_role', 'role', 'position', 'job', 'job role'],
-            'ai_tool': ['what ai tool(s) do you use most?', 'ai_tool_used', 'ai tool', 'tool', 'ai', 'ai tool used'],
-            'usage_frequency': ['usage of ai tools', 'usage_frequency', 'frequency', 'usage', 'how often'],
-            'purpose': ['purpose of using ai tools', 'purpose', 'use case', 'application', 'used for'],
-            'ease_of_use': ['ease of use (rating 1-5, 5 = easiest)', 'ease_of_use', 'ease', 'usability', 'ease of use'],
-            'time_saved': ['how efficiency do the ai tools works for your tasks? (5 = most efficient)', 'time_saved', 'time', 'efficiency', 'time save', 'time saving'],
-            'suggestions': ['any suggestions or improvement for us about the ai tools or our website ( projectfly )?', 'improvement_suggestion', 'suggestions', 'feedback', 'comments']
+            'department': ['which department are you in?', 'department', 'dept'],
+            'job_role': ['role:', 'job_role', 'role'],
+            'ai_tool': ['what ai tool(s) do you use most?', 'ai_tool'],
+            'usage_frequency': ['usage of ai tools', 'usage_frequency'],
+            'purpose': ['purpose of using ai tools', 'purpose'],
+            'ease_of_use': ['ease of use (rating 1-5, 5 = easiest)', 'ease_of_use'],
+            'time_saved': ['how efficiency do the ai tools works for your tasks? (5 = most efficient)', 'time_saved'],
+            'suggestions': ['any suggestions or improvement for us about the ai tools or our website ( projectfly )?', 'suggestions']
         }
-        
+
+        # AI tool name standardization (critical for analysis)
+        self.tool_standardization = {
+            r'chat.?gpt': 'ChatGPT',
+            r'poe\b': 'Poe',
+            r'canav?a': 'Canva',
+            r'mid.?journey': 'Midjourney',
+            r'deep.?seek': 'Deepseek',
+            r'kling.?ai': 'Kling AI',
+            r'copilot': 'Copilot',
+            r'gamma': 'Gamma',
+            r'kl(?:ing)?\s*ai': 'Kling AI',  # Catches "KlingAI" or "Kling AI"
+            r'openai': 'ChatGPT',  # Maps OpenAI to ChatGPT
+            r'gpt-\d': 'ChatGPT'   # Catches GPT-3/4
+        }
+
+        # Suggestion categorization patterns
         self.suggestion_patterns = {
             'no_suggestion': r'no|none|n/a|not|nothing|nil|nan|null|undefined',
             'training': r'train|guide|tutorial|doc|manual|help|learn|educate',
@@ -50,20 +66,21 @@ class QuestionnaireCleaner:
             raise ValueError(f"Error loading file: {str(e)}")
 
     def clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Main cleaning pipeline."""
+        """Main cleaning pipeline with strict AI tool standardization."""
         if df is None:
             raise ValueError("No data provided")
             
         df_clean = df.copy()
         df_clean = self._standardize_columns(df_clean)
         
-        # Standard cleaning for all columns
+        # Timestamp standardization
         if 'timestamp' in df_clean.columns:
             df_clean['timestamp'] = pd.to_datetime(
                 df_clean['timestamp'],
                 errors='coerce'
             ).dt.strftime('%Y-%m-%d %H:%M:%S')
         
+        # Department cleaning
         if 'department' in df_clean.columns:
             df_clean['department'] = (
                 df_clean['department']
@@ -71,18 +88,22 @@ class QuestionnaireCleaner:
                 .str.title()
             )
         
+        # AI Tool standardization (MOST CRITICAL PART)
         if 'ai_tool' in df_clean.columns:
             df_clean['ai_tool'] = self._clean_ai_tools(df_clean['ai_tool'])
         
+        # Usage frequency standardization
         if 'usage_frequency' in df_clean.columns:
             df_clean['usage_frequency'] = self._clean_usage_frequency(df_clean['usage_frequency'])
         
+        # Rating columns cleaning
         if 'ease_of_use' in df_clean.columns:
             df_clean['ease_of_use'] = self._clean_ratings(df_clean['ease_of_use'])
         
         if 'time_saved' in df_clean.columns:
             df_clean['time_saved'] = self._clean_ratings(df_clean['time_saved'])
         
+        # Suggestions cleaning and categorization
         if 'suggestions' in df_clean.columns:
             df_clean['suggestions'] = self._clean_suggestions(df_clean['suggestions'])
             df_clean['suggestion_category'] = self._categorize_suggestions(df_clean['suggestions'])
@@ -90,7 +111,7 @@ class QuestionnaireCleaner:
         return df_clean.loc[:, ~df_clean.columns.duplicated()]
 
     def save_cleaned_data(self, df: pd.DataFrame, output_path: str):
-        """Save cleaned data to CSV."""
+        """Save cleaned data to CSV with UTF-8 encoding."""
         df.to_csv(output_path, index=False, encoding='utf-8-sig')
 
     def _standardize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -115,6 +136,22 @@ class QuestionnaireCleaner:
         
         return df.rename(columns=column_mapping)
 
+    def _clean_ai_tools(self, series: pd.Series) -> pd.Series:
+        """Strict standardization of AI tool names."""
+        def _standardize_tool(tool_name: str) -> str:
+            if not isinstance(tool_name, str) or tool_name.lower() in ('nan', 'none', ''):
+                return 'Unknown'
+            
+            tool_name = tool_name.lower().strip()
+            
+            for pattern, standardized_name in self.tool_standardization.items():
+                if re.search(pattern, tool_name, re.IGNORECASE):
+                    return standardized_name
+            
+            return tool_name.title()  # Fallback for unrecognized tools
+        
+        return series.apply(_standardize_tool)
+
     def _clean_usage_frequency(self, series: pd.Series) -> pd.Series:
         """Standardize usage frequency values."""
         freq_map = {
@@ -124,27 +161,7 @@ class QuestionnaireCleaner:
             'rarely': 'Rarely',
             'never': 'Never'
         }
-        return series.str.lower().map(freq_map).fillna(series)
-
-    def _clean_ai_tools(self, series: pd.Series) -> pd.Series:
-        """Standardize AI tool names."""
-        tool_map = {
-            r'chat.?gpt': 'ChatGPT',
-            r'poe': 'Poe',
-            r'canav?a': 'Canva',
-            r'mid.?journey': 'Midjourney',
-            r'deep.?seek': 'Deepseek',
-            r'kling.?ai': 'Kling AI',
-            r'copilot': 'Copilot',
-            r'gamma': 'Gamma'
-        }
-        
-        series = series.astype(str).str.strip().str.lower()
-        
-        for pattern, replacement in tool_map.items():
-            series = series.str.replace(pattern, replacement, case=False, regex=True)
-            
-        return series.str.title()
+        return series.str.lower().map(freq_map).fillna(series.str.title())
 
     def _clean_suggestions(self, series: pd.Series) -> pd.Series:
         """Clean and format suggestions."""
@@ -189,10 +206,13 @@ if __name__ == '__main__':
     # Load raw data
     raw_data = cleaner.load_data("cleaned_questionnaire (1).csv", "CSV")
     
-    # Clean data
+    # Clean data (now with strict AI tool standardization)
     cleaned_data = cleaner.clean_data(raw_data)
     
     # Save cleaned data
-    cleaner.save_cleaned_data(cleaned_data, "cleaned_questionnaire_FINAL.csv")
+    cleaner.save_cleaned_data(cleaned_data, "cleaned_questionnaire_ANALYSIS_READY.csv")
     
-    print("Cleaning complete! Output saved to 'cleaned_questionnaire_FINAL.csv'")
+    print("="*50)
+    print("Cleaning complete! Output saved to 'cleaned_questionnaire_ANALYSIS_READY.csv'")
+    print("Unique AI tools detected:", cleaned_data['ai_tool'].unique())
+    print("="*50)
