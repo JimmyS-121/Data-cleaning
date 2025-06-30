@@ -6,48 +6,17 @@ from typing import Dict, List, Union
 
 class QuestionnaireCleaner:
     def __init__(self):
-        # Expanded standardization mappings to include common questionnaire phrasing
-        self.standard_columns = {
-            'timestamp': ['timestamp', 'date', 'time', 'datetime', 'when'],
-            'department': [
-                'department', 'dept', 'division', 'team',
-                'which department are you in', 'what department do you work in',
-                'your department'
-            ],
-            'job_role': [
-                'job_role', 'role', 'position', 'job', 'job role',
-                'what is your job role', 'your position', 'current role'
-            ],
-            'ai_tool': [
-                'ai_tool_used', 'ai_tool', 'tool', 'ai', 'ai_tool used',
-                'what ai tool(s) do you use most', 'primary ai tool',
-                'most used ai tool', 'favorite ai tool', 'AI tool(s)'
-            ],
-            'usage_frequency': [
-                'usage_frequency', 'frequency', 'usage', 'how often',
-                'how frequently do you use ai tools', 'usage rate',
-                'frequency of use'
-            ],
-            'purpose': [
-                'purpose', 'use case', 'application', 'used for',
-                'how do you use ai tools', 'primary use of ai',
-                'main purpose for using ai'
-            ],
-            'ease_of_use': [
-                'ease_of_use', 'ease', 'usability', 'ease of use',
-                'how easy is the tool to use', 'user friendliness',
-                'ease rating'
-            ],
-            'time_saved': [
-                'time_saved', 'time', 'efficiency', 'time save', 
-                'time saving', 'how much time does it save',
-                'time efficiency', 'productivity gain'
-            ],
-            'suggestions': [
-                'improvement_suggestion', 'suggestions', 'feedback', 'comments',
-                'what improvements would you suggest', 'feedback for improvement',
-                'any suggestions'
-            ]
+        # More aggressive matching patterns that will catch your exact column names
+        self.column_patterns = {
+            'timestamp': r'timestamp|date|time|when',
+            'department': r'department|dept|which department are you in',
+            'job_role': r'job.?role|position|your role|what is your role',
+            'ai_tool': r'ai.?tool|what ai tool\(s\) do you use most',
+            'usage_frequency': r'usage.?frequency|how often|how frequently',
+            'purpose': r'purpose|use.?case|how do you use',
+            'ease_of_use': r'ease.?of.?use|how easy|usability',
+            'time_saved': r'time.?saved|time.?saving|productivity',
+            'suggestions': r'suggestions|feedback|improvement|comments'
         }
         
         self.suggestion_patterns = {
@@ -59,103 +28,129 @@ class QuestionnaireCleaner:
             'accuracy': r'reliable|accurate|quality|precise|correct|better|trust|depend'
         }
 
-    def load_data(self, file_path: str, file_type: str = "CSV") -> pd.DataFrame:
-        """Load data from file"""
+    def load_data(self, file_path: str) -> pd.DataFrame:
+        """Load data from CSV or JSON"""
         try:
-            if file_type.upper() == "JSON":
+            if file_path.endswith('.json'):
                 with open(file_path, 'r') as f:
                     data = json.load(f)
-                df = pd.json_normalize(data)
+                return pd.json_normalize(data)
             else:
-                df = pd.read_csv(file_path)
-            
-            if df.empty:
-                raise ValueError("Empty file uploaded")
-            return df
-            
+                return pd.read_csv(file_path)
         except Exception as e:
             raise ValueError(f"Error loading file: {str(e)}")
 
     def clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Clean and standardize the data with proper column renaming"""
-        if df is None:
-            raise ValueError("No data provided")
+        """Forcefully standardize ALL columns to expected names"""
+        if df.empty:
+            raise ValueError("Empty dataframe provided")
             
-        df_clean = df.copy()
-        df_clean = self._standardize_columns(df_clean)
+        # 1. First normalize all column names to lowercase with underscores
+        df.columns = [col.strip().lower().replace(' ', '_').replace('?', '') for col in df.columns]
         
-        if 'timestamp' in df_clean.columns:
-            df_clean['timestamp'] = pd.to_datetime(df_clean['timestamp'], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
-        
-        if 'department' in df_clean.columns:
-            df_clean['department'] = df_clean['department'].fillna('Unknown').str.title()
-        
-        if 'ai_tool' in df_clean.columns:
-            df_clean['ai_tool'] = self._clean_ai_tools(df_clean['ai_tool'])
-        
-        if 'ease_of_use' in df_clean.columns:
-            df_clean['ease_of_use'] = self._clean_ratings(df_clean['ease_of_use'])
-        
-        if 'time_saved' in df_clean.columns:
-            df_clean['time_saved'] = self._clean_ratings(df_clean['time_saved'])
-        
-        if 'suggestions' in df_clean.columns:
-            df_clean['suggestions'] = self._clean_suggestions(df_clean['suggestions'])
-            df_clean['suggestion_category'] = self._categorize_suggestions(df_clean['suggestions'])
-        
-        return df_clean.loc[:, ~df_clean.columns.duplicated()]
-
-    def save_cleaned_data(self, df: pd.DataFrame, output_path: str):
-        """Save data with standardized column names"""
-        cleaned_df = self.clean_data(df)
-        cleaned_df.to_csv(output_path, index=False, encoding='utf-8-sig')
-
-    def _standardize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Robust column name standardization handling various question formats"""
+        # 2. Aggressive pattern matching for your specific columns
         column_mapping = {}
-        seen_standard = set()
-        
-        for original_col in df.columns:
-            # Normalize the original column name for matching
-            col_normalized = str(original_col).lower().strip().replace(' ', '_').replace('(', '').replace(')', '').replace('?', '')
-            matched = False
+        for col in df.columns:
+            col_normalized = col.lower().replace('(', '').replace(')', '').replace('_', '')
             
-            # Check against all possible variations
-            for std_col, variations in self.standard_columns.items():
-                # Check both direct matches and normalized matches
-                variation_patterns = [
-                    v.lower().strip().replace(' ', '_').replace('(', '').replace(')', '').replace('?', '')
-                    for v in variations
-                ]
-                
-                if any(v == col_normalized for v in variation_patterns):
-                    if std_col in seen_standard:
-                        # Handle duplicate columns
-                        counter = 2
-                        new_col = f"{std_col}_{counter}"
-                        while new_col in column_mapping.values():
-                            counter += 1
-                            new_col = f"{std_col}_{counter}"
-                    else:
-                        new_col = std_col
-                        seen_standard.add(std_col)
-                    
-                    column_mapping[original_col] = new_col
-                    matched = True
-                    break
-            
-            if not matched:
-                # If no match found, keep original but ensure no duplicates
-                if original_col in column_mapping.values():
-                    counter = 2
-                    new_col = f"{original_col}_2"
-                    while new_col in column_mapping.values():
-                        counter += 1
-                        new_col = f"{original_col}_{counter}"
-                    column_mapping[original_col] = new_col
+            if re.search(r'whichdepartmentareyouin', col_normalized):
+                column_mapping[col] = 'department'
+            elif re.search(r'whataitool', col_normalized):
+                column_mapping[col] = 'ai_tool'
+            elif re.search(r'usagefreq|howoften', col_normalized):
+                column_mapping[col] = 'usage_frequency'
+            elif re.search(r'suggest|feedback|improve', col_normalized):
+                column_mapping[col] = 'suggestions'
+            # Add other specific mappings as needed
+            else:
+                # Fallback to pattern matching
+                for std_col, pattern in self.column_patterns.items():
+                    if re.search(pattern, col, re.IGNORECASE):
+                        column_mapping[col] = std_col
+                        break
                 else:
-                    column_mapping[original_col] = original_col
+                    column_mapping[col] = col  # Keep original if no match
         
-        return df.rename(columns=column_mapping).loc[:, ~df.columns.duplicated()]
+        # Apply the mapping
+        df = df.rename(columns=column_mapping)
+        
+        # 3. Data cleaning
+        if 'ai_tool' in df.columns:
+            df['ai_tool'] = self._clean_ai_tools(df['ai_tool'])
+        
+        if 'usage_frequency' in df.columns:
+            df['usage_frequency'] = df['usage_frequency'].fillna('Unknown').str.strip().str.title()
+        
+        if 'suggestions' in df.columns:
+            df['suggestions'] = self._clean_suggestions(df['suggestions'])
+            df['suggestion_category'] = self._categorize_suggestions(df['suggestions'])
+        
+        return df
 
-    # [Rest of the helper methods (_clean_ai_tools, _clean_ratings, etc.) remain unchanged]
+    def _clean_ai_tools(self, series: pd.Series) -> pd.Series:
+        """Force clean AI tool names"""
+        tool_map = {
+            r'chat.?gpt': 'ChatGPT',
+            r'gpt-?4': 'GPT-4',
+            r'poe': 'Poe',
+            r'google.?bard': 'Google Bard',
+            r'gemini': 'Google Gemini',
+            r'github.?copilot': 'GitHub Copilot',
+            r'mid.?journey': 'Midjourney'
+        }
+        series = series.astype(str).str.strip().str.title()
+        for pattern, replacement in tool_map.items():
+            series = series.str.replace(pattern, replacement, regex=True)
+        return series
+
+    def _clean_suggestions(self, series: pd.Series) -> pd.Series:
+        """Clean suggestion text"""
+        series = series.astype(str).str.strip()
+        series = series.replace([
+            'nan', 'none', 'n/a', 'no', 'nothing', 
+            'nil', 'null', 'undefined', 'not applicable'
+        ], 'No suggestions', regex=True)
+        return series.str.title()
+
+    def _categorize_suggestions(self, series: pd.Series) -> pd.Series:
+        """Categorize suggestions"""
+        def _categorize(text):
+            text = str(text).lower()
+            if 'no suggestion' in text:
+                return 'No suggestions'
+            elif any(word in text for word in ['train', 'guide', 'learn']):
+                return 'Training'
+            elif any(word in text for word in ['feature', 'improve', 'add']):
+                return 'Features'
+            elif any(word in text for word in ['integrat', 'connect', 'api']):
+                return 'Integration'
+            elif any(word in text for word in ['cost', 'price', 'free']):
+                return 'Cost'
+            else:
+                return 'Other'
+        return series.apply(_categorize)
+
+    def save_clean_data(self, df: pd.DataFrame, output_path: str):
+        """Save cleaned data with guaranteed correct columns"""
+        cleaned = self.clean_data(df)
+        required_columns = [
+            'timestamp', 'department', 'job_role', 'ai_tool',
+            'usage_frequency', 'purpose', 'ease_of_use',
+            'time_saved', 'suggestions'
+        ]
+        
+        # Ensure all expected columns exist
+        for col in required_columns:
+            if col not in cleaned.columns:
+                cleaned[col] = None  # Add missing columns as null
+                
+        cleaned.to_csv(output_path, index=False)
+
+if __name__ == '__main__':
+    cleaner = QuestionnaireCleaner()
+    try:
+        raw_data = cleaner.load_data("your_questionnaire.csv")
+        cleaner.save_clean_data(raw_data, "ANALYSIS_READY.csv")
+        print("Success! Cleaned data saved as ANALYSIS_READY.csv")
+    except Exception as e:
+        print(f"Error: {str(e)}")
