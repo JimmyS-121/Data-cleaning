@@ -54,7 +54,7 @@ class QuestionnaireCleaner:
             raise ValueError("No data provided")
             
         df_clean = df.copy()
-        df_clean = self._standardize_columns(df_clean)
+        df_clean = self._standardize_columns(df_clean)  # Fixed method name
         
         # Standard cleaning for all columns
         if 'timestamp' in df_clean.columns:
@@ -82,6 +82,40 @@ class QuestionnaireCleaner:
             df_clean['suggestion_category'] = self._categorize_suggestions(df_clean['suggestions'])
         
         return df_clean.dropna(how='all', axis=1)
+
+    def _standardize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Handle duplicate columns during standardization"""
+        column_mapping = {}
+        seen_columns = set()
+        
+        for col in df.columns:
+            original_col = col
+            col_lower = str(col).lower()
+            matched = False
+            
+            # Check for standard column matches
+            for std_col, keywords in self.standard_columns.items():
+                if any(kw in col_lower for kw in keywords):
+                    # Handle duplicates
+                    if std_col in seen_columns:
+                        new_col = f"{std_col}_{original_col}"
+                    else:
+                        new_col = std_col
+                    column_mapping[original_col] = new_col
+                    seen_columns.add(std_col)
+                    matched = True
+                    break
+                    
+            if not matched:
+                # Handle duplicate original columns
+                if col in seen_columns:
+                    new_col = f"{col}_duplicate"
+                else:
+                    new_col = col
+                column_mapping[original_col] = new_col
+                seen_columns.add(col)
+                
+        return df.rename(columns=column_mapping)
 
     def _clean_suggestions(self, series: pd.Series) -> pd.Series:
         """Enhanced cleaning for suggestions column"""
@@ -135,4 +169,39 @@ class QuestionnaireCleaner:
         
         return series.apply(_categorize)
 
-    # [Rest of the existing methods (_standardize_columns, _clean_ai_tools, _clean_ratings) remain unchanged]
+    def _clean_ai_tools(self, series: pd.Series) -> pd.Series:
+        """Standardize AI tool names with case handling"""
+        tool_map = {
+            r'chat.?gpt': 'ChatGPT',
+            r'gpt-?4': 'ChatGPT-4',
+            r'google.?bard': 'Google Bard',
+            r'gemini': 'Google Gemini',
+            r'github.?copilot': 'GitHub Copilot',
+            r'mid.?journey': 'Midjourney'
+        }
+        
+        series = (
+            series.astype(str)
+            .str.strip()
+            .str.lower()
+        )
+        
+        for pattern, replacement in tool_map.items():
+            series = series.str.replace(
+                pattern, 
+                replacement, 
+                case=False, 
+                regex=True
+            )
+            
+        return series.str.title()
+
+    def _clean_ratings(self, series: pd.Series, scale: int = 5) -> pd.Series:
+        """Validate and normalize rating columns"""
+        series = pd.to_numeric(series, errors='coerce')
+        
+        # Handle different scales (e.g., 0-4 → 1-5)
+        if series.max() == 4 and series.min() == 0:
+            series = series + 1
+            
+        return series.clip(1, scale)
