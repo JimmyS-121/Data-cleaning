@@ -1,146 +1,123 @@
 import pandas as pd
-import numpy as np
-import json
 import re
-from typing import Dict, List, Union
+from typing import Dict
 
-class QuestionnaireCleaner:
+class DataCleaner:
     def __init__(self):
-        # Enhanced standardization mappings
-        self.standard_columns = {
+        # Target column mapping (exact mapping to desired output)
+        self.target_columns = {
             'timestamp': ['timestamp', 'date', 'time', 'datetime'],
-            'department': ['department', 'dept', 'division', 'team', 'which department'],
-            'job_role': ['job_role', 'role', 'position', 'job', 'job role', 'role:'],
-            'ai_tool': ['ai_tool', 'what ai tool', 'ai tool used', 'tool', 'ai'],
-            'usage_frequency': ['usage_frequency', 'usage of ai tools', 'frequency', 'usage', 'how often'],
-            'purpose': ['purpose', 'purpose of using ai tools', 'use case', 'application', 'used for'],
-            'ease_of_use': ['ease_of_use', 'ease', 'usability', 'ease of use'],
-            'efficiency': ['efficiency', 'how efficiency', 'time_saved', 'time save', 'time saving'],
-            'suggestions': ['suggestions', 'improvement', 'feedback', 'comments', 'any suggestions']
+            'department': ['department', 'dept', 'which department'],
+            'job_role': ['job_role', 'role', 'position'],
+            'ai_tool': ['ai_tool', 'what ai tool', 'ai tool used'],
+            'usage_frequency': ['usage_frequency', 'usage of ai tools'],
+            'purpose': ['purpose', 'purpose of using ai tools'],
+            'ease_of_use': ['ease_of_use', 'ease of use'],
+            'efficiency': ['efficiency', 'how efficiency'],
+            'suggestions': ['suggestions', 'any suggestions']
         }
         
-        # Tool name standardization
-        self.tool_map = {
-            r'chat.?gpt': 'ChatGPT',
-            r'gpt-?4': 'ChatGPT-4',
-            r'poe': 'Poe',
-            r'canva': 'Canva',
-            r'canava': 'Canva',
-            r'gamma': 'Gamma',
-            r'mid.?journey': 'Midjourney',
-            r'copilot': 'Copilot',
-            r'kling.?ai': 'Kling AI',
-            r'deep.?seek': 'Deepseek'
+        # Standardization rules for values
+        self.standardization_rules = {
+            'ai_tool': {
+                'chatgpt': 'ChatGPT',
+                'poe': 'Poe',
+                'canava': 'Canva',
+                'gamma': 'Gamma',
+                'midjourney': 'Midjourney',
+                'copilot': 'Copilot',
+                'kling ai': 'Kling AI',
+                'deepseek': 'Deepseek'
+            },
+            'usage_frequency': {
+                'weekly': 'Weekly',
+                'monthly': 'Monthly',
+                'daily': 'Daily',
+                'rarely': 'Rarely'
+            }
         }
 
-        # Usage frequency standardization
-        self.usage_map = {
-            r'daily': 'Daily',
-            r'weekly': 'Weekly',
-            r'monthly': 'Monthly',
-            r'rarely': 'Rarely',
-            r'^no': 'Never',
-            r'^yes': 'Regularly'
-        }
-
-    def load_data(self, file_path: str, file_type: str = "csv") -> pd.DataFrame:
-        """Load data from file with more flexible parameters"""
+    def load_data(self, file_path: str) -> pd.DataFrame:
+        """Load data from CSV file"""
         try:
-            file_type = file_type.lower()
-            if file_type == "json":
-                with open(file_path, 'r') as f:
-                    data = json.load(f)
-                df = pd.json_normalize(data)
-            else:  # default to CSV
-                df = pd.read_csv(file_path)
-            
+            df = pd.read_csv(file_path)
             if df.empty:
                 raise ValueError("Empty file uploaded")
             return df
-            
         except Exception as e:
             raise ValueError(f"Error loading file: {str(e)}")
 
     def clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Enhanced cleaning method with better column handling"""
-        if df is None or df.empty:
-            raise ValueError("No data provided or empty dataframe")
-            
-        df_clean = df.copy()
-        df_clean = self._standardize_columns(df_clean)
+        """Clean and standardize the dataframe"""
+        if df.empty:
+            raise ValueError("Empty dataframe provided")
         
-        # Clean each column systematically
-        if 'timestamp' in df_clean.columns:
-            df_clean['timestamp'] = pd.to_datetime(df_clean['timestamp'], errors='coerce')
+        # Step 1: Standardize column names
+        df = self._standardize_column_names(df)
         
-        if 'department' in df_clean.columns:
-            df_clean['department'] = df_clean['department'].str.strip().str.title()
+        # Step 2: Clean each column
+        for col in df.columns:
+            if col in self.standardization_rules:
+                df[col] = self._standardize_values(df[col], col)
         
-        if 'ai_tool' in df_clean.columns:
-            df_clean['ai_tool'] = self._clean_ai_tools(df_clean['ai_tool'])
+        # Step 3: Ensure proper data types
+        if 'timestamp' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
         
-        if 'usage_frequency' in df_clean.columns:
-            df_clean['usage_frequency'] = self._clean_usage_frequency(df_clean['usage_frequency'])
+        if 'ease_of_use' in df.columns:
+            df['ease_of_use'] = pd.to_numeric(df['ease_of_use'], errors='coerce')
         
-        if 'ease_of_use' in df_clean.columns:
-            df_clean['ease_of_use'] = self._clean_ratings(df_clean['ease_of_use'])
+        if 'efficiency' in df.columns:
+            df['efficiency'] = pd.to_numeric(df['efficiency'], errors='coerce')
         
-        if 'efficiency' in df_clean.columns:
-            df_clean['efficiency'] = self._clean_ratings(df_clean['efficiency'])
-        
-        if 'suggestions' in df_clean.columns:
-            df_clean['suggestions'] = self._clean_suggestions(df_clean['suggestions'])
-        
-        return df_clean
+        return df
 
-    def _standardize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
-        """More robust column standardization"""
+    def _standardize_column_names(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Convert input columns to target column names"""
         column_mapping = {}
         
-        for original_col in df.columns:
-            original_lower = str(original_col).lower().strip()
+        for col in df.columns:
+            col_lower = str(col).lower().strip()
             matched = False
             
-            for std_col, variations in self.standard_columns.items():
-                for variation in variations:
-                    if variation.lower() in original_lower:
-                        column_mapping[original_col] = std_col
-                        matched = True
-                        break
-                if matched:
+            # Check for exact matches first
+            for target_col, variations in self.target_columns.items():
+                if col_lower in [v.lower() for v in variations]:
+                    column_mapping[col] = target_col
+                    matched = True
                     break
             
+            # If no exact match, check for partial matches
             if not matched:
-                column_mapping[original_col] = original_col
+                for target_col, variations in self.target_columns.items():
+                    for variation in variations:
+                        if variation.lower() in col_lower:
+                            column_mapping[col] = target_col
+                            matched = True
+                            break
+                    if matched:
+                        break
+            
+            # If still no match, keep original column
+            if not matched:
+                column_mapping[col] = col
         
-        # Apply mapping and drop duplicates
-        df = df.rename(columns=column_mapping)
-        return df.loc[:, ~df.columns.duplicated()]
+        return df.rename(columns=column_mapping)
 
-    def _clean_ai_tools(self, series: pd.Series) -> pd.Series:
-        """Standardize AI tool names"""
-        series = series.astype(str).str.strip().str.lower()
-        for pattern, replacement in self.tool_map.items():
-            series = series.str.replace(pattern, replacement, case=False, regex=True)
-        return series.str.title()
-
-    def _clean_usage_frequency(self, series: pd.Series) -> pd.Series:
-        """Standardize usage frequency values"""
-        series = series.astype(str).str.strip().str.lower()
-        for pattern, replacement in self.usage_map.items():
-            series = series.str.replace(pattern, replacement, case=False, regex=True)
-        return series
-
-    def _clean_ratings(self, series: pd.Series, scale: int = 5) -> pd.Series:
-        """Clean and standardize rating values"""
-        series = pd.to_numeric(series, errors='coerce')
-        return series.clip(1, scale)
-
-    def _clean_suggestions(self, series: pd.Series) -> pd.Series:
-        """Clean suggestion text"""
-        cleaned = series.astype(str).str.strip()
-        cleaned = cleaned.replace(r'^no$|^none$|^n/a$|^nothing$', 'No suggestions', regex=True)
-        return cleaned
+    def _standardize_values(self, series: pd.Series, column: str) -> pd.Series:
+        """Standardize values in a column"""
+        if column not in self.standardization_rules:
+            return series
+        
+        # Convert to string and clean
+        cleaned = series.astype(str).str.strip().str.lower()
+        
+        # Apply standardization rules
+        rules = self.standardization_rules[column]
+        for original, standardized in rules.items():
+            cleaned = cleaned.str.replace(original, standardized, regex=False)
+        
+        return cleaned.str.title()
 
     def save_cleaned_data(self, df: pd.DataFrame, output_path: str):
         """Save cleaned data to CSV"""
@@ -149,10 +126,14 @@ class QuestionnaireCleaner:
 
 
 if __name__ == '__main__':
-    cleaner = QuestionnaireCleaner()
+    cleaner = DataCleaner()
     try:
-        raw_data = cleaner.load_data("Testing use (Responses) - Form responses 1.csv")
-        cleaner.save_cleaned_data(raw_data, "cleaned_questionnaire.csv")
-        print("Successfully created cleaned file!")
+        # Example usage:
+        input_file = "Testing use (Responses) - Form responses 1.csv"
+        output_file = "cleaned_questionnaire.csv"
+        
+        raw_data = cleaner.load_data(input_file)
+        cleaner.save_cleaned_data(raw_data, output_file)
+        print(f"Success! Cleaned data saved to {output_file}")
     except Exception as e:
         print(f"Error: {str(e)}")
