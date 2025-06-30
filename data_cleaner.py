@@ -6,16 +6,17 @@ from typing import Dict, List, Union
 
 class QuestionnaireCleaner:
     def __init__(self):
+        # Updated to match exact column names from your CSV
         self.standard_columns = {
             'timestamp': ['timestamp', 'date', 'time', 'datetime'],
-            'department': ['department', 'dept', 'division', 'team'],
-            'job_role': ['job_role', 'role', 'position', 'job', 'job role'],
-            'ai_tool': ['ai_tool_used', 'ai_tool', 'tool', 'ai', 'ai_tool used'],
-            'usage_frequency': ['usage_frequency', 'frequency', 'usage', 'how often'],
-            'purpose': ['purpose', 'use case', 'application', 'used for'],
-            'ease_of_use': ['ease_of_use', 'ease', 'usability', 'ease of use'],
-            'time_saved': ['time_saved', 'time', 'efficiency', 'time save', 'time saving'],
-            'suggestions': ['improvement_suggestion', 'suggestions', 'feedback', 'comments']
+            'department': ['which department are you in?', 'department', 'dept', 'division', 'team'],
+            'job_role': ['role:', 'job_role', 'role', 'position', 'job', 'job role'],
+            'ai_tool': ['what ai tool(s) do you use most?', 'ai_tool_used', 'ai tool', 'tool', 'ai', 'ai tool used'],
+            'usage_frequency': ['usage of ai tools', 'usage_frequency', 'frequency', 'usage', 'how often'],
+            'purpose': ['purpose of using ai tools', 'purpose', 'use case', 'application', 'used for'],
+            'ease_of_use': ['ease of use (rating 1-5, 5 = easiest)', 'ease_of_use', 'ease', 'usability', 'ease of use'],
+            'time_saved': ['how efficiency do the ai tools works for your tasks? (5 = most efficient)', 'time_saved', 'time', 'efficiency', 'time save', 'time saving'],
+            'suggestions': ['any suggestions or improvement for us about the ai tools or our website ( projectfly )?', 'improvement_suggestion', 'suggestions', 'feedback', 'comments']
         }
         
         self.suggestion_patterns = {
@@ -27,13 +28,15 @@ class QuestionnaireCleaner:
             'accuracy': r'reliable|accurate|quality|precise|correct|better|trust|depend'
         }
 
-    def load_data(self, file, file_type: str) -> pd.DataFrame:
+    def load_data(self, file_path: str, file_type: str = "CSV") -> pd.DataFrame:
+        """Load data from CSV or JSON file."""
         try:
-            if file_type == "JSON":
-                data = json.load(file)
+            if file_type.upper() == "JSON":
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
                 df = pd.json_normalize(data)
             else:
-                df = pd.read_csv(file)
+                df = pd.read_csv(file_path)
             
             if df.empty:
                 raise ValueError("Empty file uploaded")
@@ -47,6 +50,7 @@ class QuestionnaireCleaner:
             raise ValueError(f"Error loading file: {str(e)}")
 
     def clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Main cleaning pipeline."""
         if df is None:
             raise ValueError("No data provided")
             
@@ -70,6 +74,9 @@ class QuestionnaireCleaner:
         if 'ai_tool' in df_clean.columns:
             df_clean['ai_tool'] = self._clean_ai_tools(df_clean['ai_tool'])
         
+        if 'usage_frequency' in df_clean.columns:
+            df_clean['usage_frequency'] = self._clean_usage_frequency(df_clean['usage_frequency'])
+        
         if 'ease_of_use' in df_clean.columns:
             df_clean['ease_of_use'] = self._clean_ratings(df_clean['ease_of_use'])
         
@@ -80,99 +87,56 @@ class QuestionnaireCleaner:
             df_clean['suggestions'] = self._clean_suggestions(df_clean['suggestions'])
             df_clean['suggestion_category'] = self._categorize_suggestions(df_clean['suggestions'])
         
-        # Ensure no duplicate columns remain
-        df_clean = df_clean.loc[:, ~df_clean.columns.duplicated()]
-        return df_clean.dropna(how='all', axis=1)
+        return df_clean.loc[:, ~df_clean.columns.duplicated()]
+
+    def save_cleaned_data(self, df: pd.DataFrame, output_path: str):
+        """Save cleaned data to CSV."""
+        df.to_csv(output_path, index=False, encoding='utf-8-sig')
 
     def _standardize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Map raw column names to standardized versions."""
         column_mapping = {}
-        seen_standard = set()
         
         for original_col in df.columns:
-            col_lower = str(original_col).lower().replace(' ', '_')
+            original_lower = str(original_col).lower().strip().replace(' ', '_')
             matched = False
             
             for std_col, variations in self.standard_columns.items():
-                if any(v.lower().replace(' ', '_') == col_lower for v in variations):
-                    if std_col in seen_standard:
-                        # Handle duplicate standard columns
-                        new_col = f"{std_col}_2"
-                        counter = 2
-                        while new_col in column_mapping.values():
-                            counter += 1
-                            new_col = f"{std_col}_{counter}"
-                    else:
-                        new_col = std_col
-                        seen_standard.add(std_col)
-                    
-                    column_mapping[original_col] = new_col
-                    matched = True
+                for variant in variations:
+                    if original_lower == variant.lower().strip().replace(' ', '_'):
+                        column_mapping[original_col] = std_col
+                        matched = True
+                        break
+                if matched:
                     break
             
             if not matched:
-                # Handle non-standard columns
-                if original_col in column_mapping.values():
-                    counter = 2
-                    new_col = f"{original_col}_2"
-                    while new_col in column_mapping.values():
-                        counter += 1
-                        new_col = f"{original_col}_{counter}"
-                    column_mapping[original_col] = new_col
-                else:
-                    column_mapping[original_col] = original_col
+                column_mapping[original_col] = original_col
         
-        # Apply mapping and ensure no duplicates
-        df = df.rename(columns=column_mapping)
-        return df.loc[:, ~df.columns.duplicated()]
+        return df.rename(columns=column_mapping)
 
-    def _clean_suggestions(self, series: pd.Series) -> pd.Series:
-        cleaned = (
-            series
-            .astype(str)
-            .str.strip()
-            .str.lower()
-            .replace(r'^\s*$', np.nan, regex=True)
-        )
-        
-        no_suggestion_pattern = r'^(no|none|n/a|not|nothing|nil|nan|null|undefined)'
-        cleaned = cleaned.replace(no_suggestion_pattern, 'No suggestions', regex=True)
-        cleaned = cleaned.str.replace(r'[^\w\s.,;!?]', '', regex=True)
-        cleaned = cleaned.str.replace(r'\s+', ' ', regex=True)
-        
-        return cleaned.str.title()
-
-    def _categorize_suggestions(self, series: pd.Series) -> pd.Series:
-        def _categorize(suggestion: str) -> str:
-            if not isinstance(suggestion, str):
-                return 'Uncategorized'
-            
-            suggestion = suggestion.lower()
-            
-            if re.search(self.suggestion_patterns['no_suggestion'], suggestion, re.I):
-                return 'No suggestions'
-            elif re.search(self.suggestion_patterns['training'], suggestion, re.I):
-                return 'Training/guidance'
-            elif re.search(self.suggestion_patterns['features'], suggestion, re.I):
-                return 'Feature improvements'
-            elif re.search(self.suggestion_patterns['integration'], suggestion, re.I):
-                return 'Better integration'
-            elif re.search(self.suggestion_patterns['cost'], suggestion, re.I):
-                return 'Cost reduction'
-            elif re.search(self.suggestion_patterns['accuracy'], suggestion, re.I):
-                return 'Improved accuracy'
-            else:
-                return 'Other suggestions'
-        
-        return series.apply(_categorize)
+    def _clean_usage_frequency(self, series: pd.Series) -> pd.Series:
+        """Standardize usage frequency values."""
+        freq_map = {
+            'daily': 'Daily',
+            'weekly': 'Weekly',
+            'monthly': 'Monthly',
+            'rarely': 'Rarely',
+            'never': 'Never'
+        }
+        return series.str.lower().map(freq_map).fillna(series)
 
     def _clean_ai_tools(self, series: pd.Series) -> pd.Series:
+        """Standardize AI tool names."""
         tool_map = {
             r'chat.?gpt': 'ChatGPT',
-            r'gpt-?4': 'ChatGPT-4',
-            r'google.?bard': 'Google Bard',
-            r'gemini': 'Google Gemini',
-            r'github.?copilot': 'GitHub Copilot',
-            r'mid.?journey': 'Midjourney'
+            r'poe': 'Poe',
+            r'canav?a': 'Canva',
+            r'mid.?journey': 'Midjourney',
+            r'deep.?seek': 'Deepseek',
+            r'kling.?ai': 'Kling AI',
+            r'copilot': 'Copilot',
+            r'gamma': 'Gamma'
         }
         
         series = series.astype(str).str.strip().str.lower()
@@ -182,8 +146,53 @@ class QuestionnaireCleaner:
             
         return series.str.title()
 
+    def _clean_suggestions(self, series: pd.Series) -> pd.Series:
+        """Clean and format suggestions."""
+        cleaned = (
+            series
+            .astype(str)
+            .str.strip()
+            .str.lower()
+            .replace(r'^\s*$', np.nan, regex=True)
+            .replace(r'[^\w\s.,;!?]', '', regex=True)
+        )
+        
+        no_suggestion_pattern = r'^(no|none|n/a|not|nothing|nil|nan|null|undefined)'
+        return cleaned.replace(no_suggestion_pattern, 'No suggestions', regex=True)
+
+    def _categorize_suggestions(self, series: pd.Series) -> pd.Series:
+        """Categorize suggestions into predefined groups."""
+        def _categorize(suggestion: str) -> str:
+            if not isinstance(suggestion, str) or suggestion.lower() == 'no suggestions':
+                return 'No suggestions'
+            
+            suggestion = suggestion.lower()
+            
+            for category, pattern in self.suggestion_patterns.items():
+                if re.search(pattern, suggestion, re.I):
+                    return category.replace('_', ' ').title()
+            
+            return 'Other suggestions'
+        
+        return series.apply(_categorize)
+
     def _clean_ratings(self, series: pd.Series, scale: int = 5) -> pd.Series:
+        """Clean and normalize rating columns."""
         series = pd.to_numeric(series, errors='coerce')
-        if series.max() == 4 and series.min() == 0:
-            series = series + 1
         return series.clip(1, scale)
+
+
+if __name__ == '__main__':
+    # Example usage
+    cleaner = QuestionnaireCleaner()
+    
+    # Load raw data
+    raw_data = cleaner.load_data("cleaned_questionnaire (1).csv", "CSV")
+    
+    # Clean data
+    cleaned_data = cleaner.clean_data(raw_data)
+    
+    # Save cleaned data
+    cleaner.save_cleaned_data(cleaned_data, "cleaned_questionnaire_FINAL.csv")
+    
+    print("Cleaning complete! Output saved to 'cleaned_questionnaire_FINAL.csv'")
