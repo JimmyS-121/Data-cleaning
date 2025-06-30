@@ -21,7 +21,7 @@ class QuestionnaireCleaner:
             'ai_tool': [
                 'ai_tool_used', 'ai_tool', 'tool', 'ai', 'ai_tool used',
                 'what ai tool(s) do you use most', 'primary ai tool',
-                'most used ai tool', 'favorite ai tool'
+                'most used ai tool', 'favorite ai tool', 'AI tool(s)'
             ],
             'usage_frequency': [
                 'usage_frequency', 'frequency', 'usage', 'how often',
