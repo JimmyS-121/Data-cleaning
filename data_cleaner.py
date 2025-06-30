@@ -6,7 +6,7 @@ from typing import Dict, List, Union
 
 class QuestionnaireCleaner:
     def __init__(self):
-        # Original standardization mappings
+        # Standardization mappings for cleaning
         self.standard_columns = {
             'timestamp': ['timestamp', 'date', 'time', 'datetime'],
             'department': ['department', 'dept', 'division', 'team'],
@@ -28,17 +28,17 @@ class QuestionnaireCleaner:
             'accuracy': r'reliable|accurate|quality|precise|correct|better|trust|depend'
         }
 
-        # New mapping for analysis columns
+        # Mapping for analysis-ready column names (matches Analysis_tool.py expectations)
         self.analysis_columns = {
-            'analysis_timestamp': 'timestamp',
-            'analysis_department': 'department',
-            'analysis_job_role': 'job_role',
-            'analysis_ai_tool': 'ai_tool',
-            'analysis_usage': 'usage_frequency',
-            'analysis_purpose': 'purpose',
-            'analysis_ease': 'ease_of_use',
-            'analysis_efficiency': 'time_saved',
-            'analysis_feedback': 'suggestions'
+            'timestamp': 'timestamp',
+            'department': 'department',
+            'job_role': 'job_role',
+            'ai_tool': 'ai_tool',
+            'usage_frequency': 'usage_frequency',
+            'purpose': 'purpose',
+            'ease_of_use': 'ease_of_use',
+            'time_saved': 'time_saved',
+            'suggestions': 'suggestions'
         }
 
     def load_data(self, file_path: str, file_type: str = "CSV") -> pd.DataFrame:
@@ -59,7 +59,7 @@ class QuestionnaireCleaner:
             raise ValueError(f"Error loading file: {str(e)}")
 
     def clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Original cleaning method"""
+        """Clean and standardize the data"""
         if df is None:
             raise ValueError("No data provided")
             
@@ -87,23 +87,25 @@ class QuestionnaireCleaner:
         
         return df_clean.loc[:, ~df_clean.columns.duplicated()]
 
-    def add_analysis_columns(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Add new columns with standardized names for analysis"""
-        df_analysis = df.copy()
-        df_cleaned = self.clean_data(df_analysis)
+    def prepare_for_analysis(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Prepare data specifically for the analysis tool"""
+        df_clean = self.clean_data(df)
+        
+        # Create analysis-ready dataframe with only the columns we need
+        analysis_df = pd.DataFrame()
         
         for analysis_col, std_col in self.analysis_columns.items():
-            if std_col in df_cleaned.columns:
-                df_analysis[analysis_col] = df_cleaned[std_col]
+            if std_col in df_clean.columns:
+                analysis_df[analysis_col] = df_clean[std_col]
         
-        return df_analysis
+        return analysis_df
 
-    def save_with_analysis(self, df: pd.DataFrame, output_path: str):
-        """Save data with both original and analysis columns"""
-        df_with_analysis = self.add_analysis_columns(df)
-        df_with_analysis.to_csv(output_path, index=False, encoding='utf-8-sig')
+    def save_analysis_ready_data(self, df: pd.DataFrame, output_path: str):
+        """Save data with analysis-ready column names"""
+        analysis_df = self.prepare_for_analysis(df)
+        analysis_df.to_csv(output_path, index=False, encoding='utf-8-sig')
 
-    # All original helper methods remain unchanged below
+    # Helper methods remain unchanged
     def _standardize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         column_mapping = {}
         seen_standard = set()
@@ -193,7 +195,7 @@ if __name__ == '__main__':
     cleaner = QuestionnaireCleaner()
     try:
         raw_data = cleaner.load_data("cleaned_questionnaire (1).csv")
-        cleaner.save_with_analysis(raw_data, "cleaned_questionnaire_ANALYSIS_READY.csv")
+        cleaner.save_analysis_ready_data(raw_data, "analysis_ready_data.csv")
         print("Successfully created analysis-ready file!")
     except Exception as e:
         print(f"Error: {str(e)}")
