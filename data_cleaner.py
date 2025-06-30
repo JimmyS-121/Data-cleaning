@@ -18,7 +18,6 @@ class QuestionnaireCleaner:
             'suggestions': ['improvement_suggestion', 'suggestions', 'feedback', 'comments']
         }
         
-        # Patterns for suggestion cleaning
         self.suggestion_patterns = {
             'no_suggestion': r'no|none|n/a|not|nothing|nil|nan|null|undefined',
             'training': r'train|guide|tutorial|doc|manual|help|learn|educate',
@@ -29,7 +28,6 @@ class QuestionnaireCleaner:
         }
 
     def load_data(self, file, file_type: str) -> pd.DataFrame:
-        """Load uploaded file into DataFrame with validation"""
         try:
             if file_type == "JSON":
                 data = json.load(file)
@@ -49,14 +47,12 @@ class QuestionnaireCleaner:
             raise ValueError(f"Error loading file: {str(e)}")
 
     def clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Main data cleaning pipeline with enhanced suggestion cleaning"""
         if df is None:
             raise ValueError("No data provided")
             
         df_clean = df.copy()
-        df_clean = self._standardize_columns(df_clean)  # Fixed method name
+        df_clean = self._standardize_columns(df_clean)
         
-        # Standard cleaning for all columns
         if 'timestamp' in df_clean.columns:
             df_clean['timestamp'] = pd.to_datetime(
                 df_clean['timestamp'],
@@ -76,7 +72,9 @@ class QuestionnaireCleaner:
         if 'ease_of_use' in df_clean.columns:
             df_clean['ease_of_use'] = self._clean_ratings(df_clean['ease_of_use'])
         
-        # Enhanced suggestion cleaning
+        if 'time_saved' in df_clean.columns:
+            df_clean['time_saved'] = self._clean_ratings(df_clean['time_saved'])
+        
         if 'suggestions' in df_clean.columns:
             df_clean['suggestions'] = self._clean_suggestions(df_clean['suggestions'])
             df_clean['suggestion_category'] = self._categorize_suggestions(df_clean['suggestions'])
@@ -84,21 +82,18 @@ class QuestionnaireCleaner:
         return df_clean.dropna(how='all', axis=1)
 
     def _standardize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Handle duplicate columns during standardization"""
         column_mapping = {}
         seen_columns = set()
         
         for col in df.columns:
             original_col = col
-            col_lower = str(col).lower()
+            col_lower = str(col).lower().replace(' ', '_')
             matched = False
             
-            # Check for standard column matches
             for std_col, keywords in self.standard_columns.items():
-                if any(kw in col_lower for kw in keywords):
-                    # Handle duplicates
-                    if std_col in seen_columns:
-                        new_col = f"{std_col}_{original_col}"
+                if any(kw in col_lower for kw in [k.lower().replace(' ', '_') for k in keywords]):
+                    if std_col in seen_columns and not (std_col == 'timestamp' and 'time' in col_lower):
+                        new_col = f"{std_col}_duplicate_{len([c for c in column_mapping.values() if c.startswith(std_col)])}"
                     else:
                         new_col = std_col
                     column_mapping[original_col] = new_col
@@ -107,7 +102,6 @@ class QuestionnaireCleaner:
                     break
                     
             if not matched:
-                # Handle duplicate original columns
                 if col in seen_columns:
                     new_col = f"{col}_duplicate"
                 else:
@@ -118,34 +112,22 @@ class QuestionnaireCleaner:
         return df.rename(columns=column_mapping)
 
     def _clean_suggestions(self, series: pd.Series) -> pd.Series:
-        """Enhanced cleaning for suggestions column"""
-        # Convert to string and basic cleaning
         cleaned = (
             series
             .astype(str)
             .str.strip()
             .str.lower()
-            .replace(r'^\s*$', np.nan, regex=True)  # Empty strings to NaN
+            .replace(r'^\s*$', np.nan, regex=True)
         )
         
-        # Standardize "no suggestion" responses
         no_suggestion_pattern = r'^(no|none|n/a|not|nothing|nil|nan|null|undefined)'
-        cleaned = cleaned.replace(
-            no_suggestion_pattern, 
-            'No suggestions', 
-            regex=True
-        )
-        
-        # Remove special characters except basic punctuation
+        cleaned = cleaned.replace(no_suggestion_pattern, 'No suggestions', regex=True)
         cleaned = cleaned.str.replace(r'[^\w\s.,;!?]', '', regex=True)
-        
-        # Normalize whitespace
         cleaned = cleaned.str.replace(r'\s+', ' ', regex=True)
         
         return cleaned.str.title()
 
     def _categorize_suggestions(self, series: pd.Series) -> pd.Series:
-        """Categorize suggestions into predefined groups"""
         def _categorize(suggestion: str) -> str:
             if not isinstance(suggestion, str):
                 return 'Uncategorized'
@@ -170,7 +152,6 @@ class QuestionnaireCleaner:
         return series.apply(_categorize)
 
     def _clean_ai_tools(self, series: pd.Series) -> pd.Series:
-        """Standardize AI tool names with case handling"""
         tool_map = {
             r'chat.?gpt': 'ChatGPT',
             r'gpt-?4': 'ChatGPT-4',
@@ -180,28 +161,15 @@ class QuestionnaireCleaner:
             r'mid.?journey': 'Midjourney'
         }
         
-        series = (
-            series.astype(str)
-            .str.strip()
-            .str.lower()
-        )
+        series = series.astype(str).str.strip().str.lower()
         
         for pattern, replacement in tool_map.items():
-            series = series.str.replace(
-                pattern, 
-                replacement, 
-                case=False, 
-                regex=True
-            )
+            series = series.str.replace(pattern, replacement, case=False, regex=True)
             
         return series.str.title()
 
     def _clean_ratings(self, series: pd.Series, scale: int = 5) -> pd.Series:
-        """Validate and normalize rating columns"""
         series = pd.to_numeric(series, errors='coerce')
-        
-        # Handle different scales (e.g., 0-4 → 1-5)
         if series.max() == 4 and series.min() == 0:
             series = series + 1
-            
         return series.clip(1, scale)
