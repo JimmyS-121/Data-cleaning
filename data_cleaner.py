@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import json
 import re
-from typing import Optional, Union
+from typing import Dict, List, Union
 
 class QuestionnaireCleaner:
     def __init__(self):
@@ -53,6 +53,7 @@ class QuestionnaireCleaner:
         df_clean = df.copy()
         df_clean = self._standardize_columns(df_clean)
         
+        # Standard cleaning for all columns
         if 'timestamp' in df_clean.columns:
             df_clean['timestamp'] = pd.to_datetime(
                 df_clean['timestamp'],
@@ -79,37 +80,50 @@ class QuestionnaireCleaner:
             df_clean['suggestions'] = self._clean_suggestions(df_clean['suggestions'])
             df_clean['suggestion_category'] = self._categorize_suggestions(df_clean['suggestions'])
         
+        # Ensure no duplicate columns remain
+        df_clean = df_clean.loc[:, ~df_clean.columns.duplicated()]
         return df_clean.dropna(how='all', axis=1)
 
     def _standardize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         column_mapping = {}
-        seen_columns = set()
+        seen_standard = set()
         
-        for col in df.columns:
-            original_col = col
-            col_lower = str(col).lower().replace(' ', '_')
+        for original_col in df.columns:
+            col_lower = str(original_col).lower().replace(' ', '_')
             matched = False
             
-            for std_col, keywords in self.standard_columns.items():
-                if any(kw in col_lower for kw in [k.lower().replace(' ', '_') for k in keywords]):
-                    if std_col in seen_columns and not (std_col == 'timestamp' and 'time' in col_lower):
-                        new_col = f"{std_col}_duplicate_{len([c for c in column_mapping.values() if c.startswith(std_col)])}"
+            for std_col, variations in self.standard_columns.items():
+                if any(v.lower().replace(' ', '_') == col_lower for v in variations):
+                    if std_col in seen_standard:
+                        # Handle duplicate standard columns
+                        new_col = f"{std_col}_2"
+                        counter = 2
+                        while new_col in column_mapping.values():
+                            counter += 1
+                            new_col = f"{std_col}_{counter}"
                     else:
                         new_col = std_col
+                        seen_standard.add(std_col)
+                    
                     column_mapping[original_col] = new_col
-                    seen_columns.add(std_col)
                     matched = True
                     break
-                    
+            
             if not matched:
-                if col in seen_columns:
-                    new_col = f"{col}_duplicate"
+                # Handle non-standard columns
+                if original_col in column_mapping.values():
+                    counter = 2
+                    new_col = f"{original_col}_2"
+                    while new_col in column_mapping.values():
+                        counter += 1
+                        new_col = f"{original_col}_{counter}"
+                    column_mapping[original_col] = new_col
                 else:
-                    new_col = col
-                column_mapping[original_col] = new_col
-                seen_columns.add(col)
-                
-        return df.rename(columns=column_mapping)
+                    column_mapping[original_col] = original_col
+        
+        # Apply mapping and ensure no duplicates
+        df = df.rename(columns=column_mapping)
+        return df.loc[:, ~df.columns.duplicated()]
 
     def _clean_suggestions(self, series: pd.Series) -> pd.Series:
         cleaned = (
