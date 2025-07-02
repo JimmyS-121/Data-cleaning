@@ -65,7 +65,8 @@ def main():
     
     if uploaded_file:
         try:
-            df = cleaner.load_data(uploaded_file, "JSON" if uploaded_file.type == "application/json" else "CSV")
+            file_type = "JSON" if uploaded_file.type == "application/json" else "CSV"
+            df = cleaner.load_data(uploaded_file, file_type)
             
             with st.expander("🔍 Raw Data Preview"):
                 st.dataframe(df.head(3))
