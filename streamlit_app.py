@@ -1,12 +1,6 @@
 import streamlit as st
 from data_cleaner import QuestionnaireCleaner
 import pandas as pd
-import time
-
-@st.cache_resource
-def get_cleaner():
-    """Cache the cleaner instance to avoid reinitialization"""
-    return QuestionnaireCleaner()
 
 def show_upload_section():
     """File upload UI component"""
@@ -25,14 +19,10 @@ def show_upload_section():
                 key="file_uploader"
             )
 
-@st.cache_data(show_spinner="🧼 Cleaning data...")
-def clean_data(_cleaner, df):
-    """Cache the cleaning operation"""
-    return _cleaner.clean_data(df)
-
 def show_results(cleaner, df):
     """Display cleaning results"""
-    cleaned_df = clean_data(cleaner, df)
+    with st.spinner("🧼 Cleaning data..."):
+        cleaned_df = cleaner.clean_data(df)
     
     st.subheader("✨ Cleaned Data Preview")
     st.dataframe(cleaned_df.head(3))
@@ -69,9 +59,8 @@ def main():
     )
     
     st.title("🧹 AI Tools Questionnaire Data Cleaner")
-    st.caption("Upload your questionnaire data to clean and standardize it")
+    cleaner = QuestionnaireCleaner()
     
-    cleaner = get_cleaner()
     uploaded_file = show_upload_section()
     
     if uploaded_file:
