@@ -4,17 +4,17 @@ from typing import Dict
 
 class DataCleaner:
     def __init__(self):
-        # Target column mapping (exact mapping to desired output)
+        # Target column mapping (more comprehensive mapping)
         self.target_columns = {
-            'timestamp': ['timestamp', 'date', 'time', 'datetime'],
-            'department': ['department', 'dept', 'which department'],
-            'job_role': ['job_role', 'role', 'position'],
-            'ai_tool': ['ai_tool', 'what ai tool', 'ai tool used'],
-            'usage_frequency': ['usage_frequency', 'usage of ai tools'],
-            'purpose': ['purpose', 'purpose of using ai tools'],
-            'ease_of_use': ['ease_of_use', 'ease of use'],
-            'efficiency': ['efficiency', 'how efficiency'],
-            'suggestions': ['suggestions', 'any suggestions']
+            'timestamp': ['timestamp', 'date', 'time', 'datetime', 'when'],
+            'department': ['department', 'dept', 'which department', 'your department'],
+            'job_role': ['job_role', 'role', 'position', 'your role', 'job title'],
+            'ai_tool': ['ai_tool', 'what ai tool', 'ai tool used', 'tools you use', 'what tools do you use'],
+            'usage_frequency': ['usage_frequency', 'usage of ai tools', 'how often', 'frequency', 'usage frequency'],
+            'purpose': ['purpose', 'purpose of using ai tools', 'why do you use', 'main purpose'],
+            'ease_of_use': ['ease_of_use', 'ease of use', 'how easy', 'user friendly'],
+            'efficiency': ['efficiency', 'how efficiency', 'productivity impact', 'time saved'],
+            'suggestions': ['suggestions', 'any suggestions', 'feedback', 'comments']
         }
         
         # Standardization rules for values
@@ -33,7 +33,8 @@ class DataCleaner:
                 'weekly': 'Weekly',
                 'monthly': 'Monthly',
                 'daily': 'Daily',
-                'rarely': 'Rarely'
+                'rarely': 'Rarely',
+                'never': 'Never'
             }
         }
 
@@ -52,7 +53,7 @@ class DataCleaner:
         if df.empty:
             raise ValueError("Empty dataframe provided")
         
-        # Step 1: Standardize column names
+        # Step 1: Standardize column names (more aggressive matching)
         df = self._standardize_column_names(df)
         
         # Step 2: Clean each column
@@ -73,34 +74,33 @@ class DataCleaner:
         return df
 
     def _standardize_column_names(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Convert input columns to target column names"""
+        """Convert input columns to target column names with more aggressive matching"""
         column_mapping = {}
         
         for col in df.columns:
             col_lower = str(col).lower().strip()
             matched = False
             
-            # Check for exact matches first
+            # Check all possible variations for each target column
             for target_col, variations in self.target_columns.items():
-                if col_lower in [v.lower() for v in variations]:
+                # Check if any variation is contained in the column name
+                if any(variation.lower() in col_lower for variation in variations):
                     column_mapping[col] = target_col
                     matched = True
                     break
             
-            # If no exact match, check for partial matches
+            # If still no match, check for partial matches with keywords
             if not matched:
-                for target_col, variations in self.target_columns.items():
-                    for variation in variations:
-                        if variation.lower() in col_lower:
-                            column_mapping[col] = target_col
-                            matched = True
-                            break
-                    if matched:
-                        break
-            
-            # If still no match, keep original column
-            if not matched:
-                column_mapping[col] = col
+                if 'tool' in col_lower or 'use' in col_lower or 'ai' in col_lower:
+                    column_mapping[col] = 'ai_tool'
+                elif 'freq' in col_lower or 'often' in col_lower:
+                    column_mapping[col] = 'usage_frequency'
+                elif 'ease' in col_lower or 'easy' in col_lower:
+                    column_mapping[col] = 'ease_of_use'
+                elif 'efficien' in col_lower or 'productiv' in col_lower:
+                    column_mapping[col] = 'efficiency'
+                else:
+                    column_mapping[col] = col  # fallback to original if no match
         
         return df.rename(columns=column_mapping)
 
@@ -115,7 +115,13 @@ class DataCleaner:
         # Apply standardization rules
         rules = self.standardization_rules[column]
         for original, standardized in rules.items():
-            cleaned = cleaned.str.replace(original, standardized, regex=False)
+            # Use regex to match whole words to avoid partial matches
+            cleaned = cleaned.str.replace(
+                rf'\b{original}\b', 
+                standardized, 
+                regex=True,
+                case=False
+            )
         
         return cleaned.str.title()
 
