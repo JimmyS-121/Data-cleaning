@@ -6,6 +6,9 @@ from datetime import datetime
 
 class QuestionnaireCleaner:
     def __init__(self):
+        # Pre-compile regex patterns for better performance
+        self._compiled_patterns = {}
+        
         # Target column mapping
         self.target_columns = {
             'timestamp': ['timestamp', 'date', 'time', 'datetime', 'when'],
@@ -19,32 +22,32 @@ class QuestionnaireCleaner:
             'suggestions': ['suggestions', 'any suggestions', 'feedback', 'comments']
         }
         
-        # Standardization rules
+        # Standardization rules with pre-compiled patterns
         self.standardization_rules = {
             'ai_tool': {
-                'chatgpt': 'ChatGPT',
-                'poe': 'Poe',
-                'canava': 'Canva',
-                'gamma': 'Gamma',
-                'midjourney': 'Midjourney',
-                'copilot': 'Copilot',
-                'kling ai': 'Kling AI',
-                'deepseek': 'Deepseek'
+                re.compile(r'\bchatgpt\b', re.IGNORECASE): 'ChatGPT',
+                re.compile(r'\bpoe\b', re.IGNORECASE): 'Poe',
+                re.compile(r'\bcanava\b', re.IGNORECASE): 'Canva',
+                re.compile(r'\bgamma\b', re.IGNORECASE): 'Gamma',
+                re.compile(r'\bmidjourney\b', re.IGNORECASE): 'Midjourney',
+                re.compile(r'\bcopilot\b', re.IGNORECASE): 'Copilot',
+                re.compile(r'\bkling ai\b', re.IGNORECASE): 'Kling AI',
+                re.compile(r'\bdeepseek\b', re.IGNORECASE): 'Deepseek'
             },
             'usage_frequency': {
-                'weekly': 'Weekly',
-                'monthly': 'Monthly',
-                'daily': 'Daily',
-                'rarely': 'Rarely',
-                'never': 'Never'
+                re.compile(r'\bweekly\b', re.IGNORECASE): 'Weekly',
+                re.compile(r'\bmonthly\b', re.IGNORECASE): 'Monthly',
+                re.compile(r'\bdaily\b', re.IGNORECASE): 'Daily',
+                re.compile(r'\brarely\b', re.IGNORECASE): 'Rarely',
+                re.compile(r'\bnever\b', re.IGNORECASE): 'Never'
             }
         }
 
     def load_data(self, file_path: Union[str, object], file_type: str = "CSV") -> pd.DataFrame:
-        """Load data from file (CSV or JSON)"""
+        """Load data from file (CSV or JSON) with optimized parameters"""
         try:
             if file_type.upper() == "CSV":
-                df = pd.read_csv(file_path)
+                df = pd.read_csv(file_path, engine='pyarrow', dtype_backend='pyarrow')
             elif file_type.upper() == "JSON":
                 df = pd.read_json(file_path)
             else:
@@ -81,11 +84,15 @@ class QuestionnaireCleaner:
         return df
 
     def _standardize_column_names(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Convert input columns to target column names"""
+        """Convert input columns to target column names with optimized matching"""
         column_mapping = {}
+        col_lower_cache = {}
         
+        # Pre-cache lowercase column names
         for col in df.columns:
-            col_lower = str(col).lower().strip()
+            col_lower_cache[col] = str(col).lower().strip()
+        
+        for col, col_lower in col_lower_cache.items():
             matched = False
             
             for target_col, variations in self.target_columns.items():
@@ -95,14 +102,14 @@ class QuestionnaireCleaner:
                     break
             
             if not matched:
-                # Fallback matching for common cases
-                if 'tool' in col_lower or 'use' in col_lower or 'ai' in col_lower:
+                # Fallback matching with regex for better performance
+                if re.search(r'tool|use|ai', col_lower):
                     column_mapping[col] = 'ai_tool'
-                elif 'freq' in col_lower or 'often' in col_lower:
+                elif re.search(r'freq|often', col_lower):
                     column_mapping[col] = 'usage_frequency'
-                elif 'ease' in col_lower or 'easy' in col_lower:
+                elif re.search(r'ease|easy', col_lower):
                     column_mapping[col] = 'ease_of_use'
-                elif 'efficien' in col_lower or 'productiv' in col_lower:
+                elif re.search(r'efficien|productiv', col_lower):
                     column_mapping[col] = 'efficiency'
                 else:
                     column_mapping[col] = col
@@ -110,40 +117,25 @@ class QuestionnaireCleaner:
         return df.rename(columns=column_mapping)
 
     def _standardize_values(self, series: pd.Series, column: str) -> pd.Series:
-        """Standardize values in a column"""
+        """Standardize values in a column using pre-compiled patterns"""
         if column not in self.standardization_rules:
             return series
         
-        cleaned = series.astype(str).str.strip().str.lower()
+        cleaned = series.astype(str).str.strip()
         
-        rules = self.standardization_rules[column]
-        for original, standardized in rules.items():
+        for pattern, replacement in self.standardization_rules[column].items():
             cleaned = cleaned.str.replace(
-                rf'\b{original}\b', 
-                standardized, 
-                regex=True,
-                case=False
+                pattern,
+                replacement,
+                regex=True
             )
         
-        return cleaned.str.title()
+        return cleaned
 
     def save_cleaned_data(self, df: pd.DataFrame, output_path: str):
-        """Save cleaned data to CSV"""
+        """Save cleaned data to CSV with optimized parameters"""
         cleaned_df = self.clean_data(df)
         cleaned_df.to_csv(output_path, index=False, encoding='utf-8-sig')
 
-
 # For backward compatibility
 DataCleaner = QuestionnaireCleaner
-
-if __name__ == '__main__':
-    cleaner = QuestionnaireCleaner()
-    try:
-        input_file = "Testing use (Responses) - Form responses 1.csv"
-        output_file = "cleaned_questionnaire.csv"
-        
-        raw_data = cleaner.load_data(input_file)
-        cleaner.save_cleaned_data(raw_data, output_file)
-        print(f"Success! Cleaned data saved to {output_file}")
-    except Exception as e:
-        print(f"Error: {str(e)}")
