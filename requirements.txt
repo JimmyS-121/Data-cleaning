@@ -1,5 +1,11 @@
--r requirements.txt
-pytest==7.4.2
-pytest-cov==4.1.0
-black==23.9.1
-mypy==1.5.1
+# Core dependencies
+streamlit==1.28.2
+pandas==2.1.1
+numpy==1.25.2
+
+# Additional dependencies for full functionality
+python-dateutil==2.8.2  # Required for pandas datetime operations
+pytz==2023.3.post1      # Timezone support
+tzdata==2023.3          # IANA timezone database
+openpyxl==3.1.2         # Excel support (for potential future features)
+xlrd==2.0.1             # Legacy Excel support
