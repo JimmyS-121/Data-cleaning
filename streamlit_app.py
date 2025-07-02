@@ -59,8 +59,9 @@ def main():
     )
     
     st.title("🧹 AI Tools Questionnaire Data Cleaner")
-    cleaner = QuestionnaireCleaner()
+    st.caption("Upload your questionnaire data to clean and standardize it")
     
+    cleaner = QuestionnaireCleaner()
     uploaded_file = show_upload_section()
     
     if uploaded_file:
