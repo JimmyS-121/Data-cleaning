@@ -2,6 +2,7 @@ import pandas as pd
 import re
 from typing import Dict, Union, Optional
 import json
+from datetime import datetime
 
 class QuestionnaireCleaner:
     def __init__(self):
@@ -43,15 +44,9 @@ class QuestionnaireCleaner:
         """Load data from file (CSV or JSON)"""
         try:
             if file_type.upper() == "CSV":
-                if isinstance(file_path, str):
-                    df = pd.read_csv(file_path)
-                else:  # file upload object
-                    df = pd.read_csv(file_path)
+                df = pd.read_csv(file_path)
             elif file_type.upper() == "JSON":
-                if isinstance(file_path, str):
-                    df = pd.read_json(file_path)
-                else:  # file upload object
-                    df = pd.read_json(file_path)
+                df = pd.read_json(file_path)
             else:
                 raise ValueError("Unsupported file type. Use CSV or JSON.")
             
@@ -78,11 +73,10 @@ class QuestionnaireCleaner:
         if 'timestamp' in df.columns:
             df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
         
-        if 'ease_of_use' in df.columns:
-            df['ease_of_use'] = pd.to_numeric(df['ease_of_use'], errors='coerce')
-        
-        if 'efficiency' in df.columns:
-            df['efficiency'] = pd.to_numeric(df['efficiency'], errors='coerce')
+        numeric_cols = ['ease_of_use', 'efficiency']
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
         
         return df
 
@@ -101,6 +95,7 @@ class QuestionnaireCleaner:
                     break
             
             if not matched:
+                # Fallback matching for common cases
                 if 'tool' in col_lower or 'use' in col_lower or 'ai' in col_lower:
                     column_mapping[col] = 'ai_tool'
                 elif 'freq' in col_lower or 'often' in col_lower:
