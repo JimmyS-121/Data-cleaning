@@ -1,15 +1,11 @@
 # Core dependencies
 streamlit==1.28.2
-pandas==2.2.1
-numpy==2.0.0
-pyarrow>=10.0.1
+pandas==2.1.1
+numpy==1.25.2
 
-# Optimization dependencies
-fastparquet==2023.10.1  # For faster parquet operations
-python-dateutil==2.8.2
-pytz==2023.3.post1
-tzdata==2023.3
-
-# Optional dependencies for different file formats
-openpyxl==3.1.2
-xlrd==2.0.1
+# Additional dependencies for full functionality
+python-dateutil==2.8.2  # Required for pandas datetime operations
+pytz==2023.3.post1      # Timezone support
+tzdata==2023.3          # IANA timezone database
+openpyxl==3.1.2         # Excel support (for potential future features)
+xlrd==2.0.1             # Legacy Excel support
