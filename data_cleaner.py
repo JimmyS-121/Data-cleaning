@@ -1,10 +1,11 @@
 import pandas as pd
 import re
-from typing import Dict
+from typing import Dict, Union, Optional
+import json
 
-class DataCleaner:
+class QuestionnaireCleaner:
     def __init__(self):
-        # Target column mapping (more comprehensive mapping)
+        # Target column mapping
         self.target_columns = {
             'timestamp': ['timestamp', 'date', 'time', 'datetime', 'when'],
             'department': ['department', 'dept', 'which department', 'your department'],
@@ -17,7 +18,7 @@ class DataCleaner:
             'suggestions': ['suggestions', 'any suggestions', 'feedback', 'comments']
         }
         
-        # Standardization rules for values
+        # Standardization rules
         self.standardization_rules = {
             'ai_tool': {
                 'chatgpt': 'ChatGPT',
@@ -38,10 +39,22 @@ class DataCleaner:
             }
         }
 
-    def load_data(self, file_path: str) -> pd.DataFrame:
-        """Load data from CSV file"""
+    def load_data(self, file_path: Union[str, object], file_type: str = "CSV") -> pd.DataFrame:
+        """Load data from file (CSV or JSON)"""
         try:
-            df = pd.read_csv(file_path)
+            if file_type.upper() == "CSV":
+                if isinstance(file_path, str):
+                    df = pd.read_csv(file_path)
+                else:  # file upload object
+                    df = pd.read_csv(file_path)
+            elif file_type.upper() == "JSON":
+                if isinstance(file_path, str):
+                    df = pd.read_json(file_path)
+                else:  # file upload object
+                    df = pd.read_json(file_path)
+            else:
+                raise ValueError("Unsupported file type. Use CSV or JSON.")
+            
             if df.empty:
                 raise ValueError("Empty file uploaded")
             return df
@@ -53,7 +66,7 @@ class DataCleaner:
         if df.empty:
             raise ValueError("Empty dataframe provided")
         
-        # Step 1: Standardize column names (more aggressive matching)
+        # Step 1: Standardize column names
         df = self._standardize_column_names(df)
         
         # Step 2: Clean each column
@@ -74,22 +87,19 @@ class DataCleaner:
         return df
 
     def _standardize_column_names(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Convert input columns to target column names with more aggressive matching"""
+        """Convert input columns to target column names"""
         column_mapping = {}
         
         for col in df.columns:
             col_lower = str(col).lower().strip()
             matched = False
             
-            # Check all possible variations for each target column
             for target_col, variations in self.target_columns.items():
-                # Check if any variation is contained in the column name
                 if any(variation.lower() in col_lower for variation in variations):
                     column_mapping[col] = target_col
                     matched = True
                     break
             
-            # If still no match, check for partial matches with keywords
             if not matched:
                 if 'tool' in col_lower or 'use' in col_lower or 'ai' in col_lower:
                     column_mapping[col] = 'ai_tool'
@@ -100,7 +110,7 @@ class DataCleaner:
                 elif 'efficien' in col_lower or 'productiv' in col_lower:
                     column_mapping[col] = 'efficiency'
                 else:
-                    column_mapping[col] = col  # fallback to original if no match
+                    column_mapping[col] = col
         
         return df.rename(columns=column_mapping)
 
@@ -109,13 +119,10 @@ class DataCleaner:
         if column not in self.standardization_rules:
             return series
         
-        # Convert to string and clean
         cleaned = series.astype(str).str.strip().str.lower()
         
-        # Apply standardization rules
         rules = self.standardization_rules[column]
         for original, standardized in rules.items():
-            # Use regex to match whole words to avoid partial matches
             cleaned = cleaned.str.replace(
                 rf'\b{original}\b', 
                 standardized, 
@@ -131,10 +138,12 @@ class DataCleaner:
         cleaned_df.to_csv(output_path, index=False, encoding='utf-8-sig')
 
 
+# For backward compatibility
+DataCleaner = QuestionnaireCleaner
+
 if __name__ == '__main__':
-    cleaner = DataCleaner()
+    cleaner = QuestionnaireCleaner()
     try:
-        # Example usage:
         input_file = "Testing use (Responses) - Form responses 1.csv"
         output_file = "cleaned_questionnaire.csv"
         
